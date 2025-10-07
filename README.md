@@ -1,1 +1,679 @@
-# Jujutsu-Sea-
+local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/jensonhirst/Orion/main/source"))()
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Window = OrionLib:MakeWindow({
+    Name = "Petch Hub",
+    HidePremium = false,
+    SaveConfig = true,
+    ConfigFolder = "PetchHub"
+})
+
+local MainTab = Window:MakeTab({
+    Name = "Main",
+    PremiumOnly = false
+})
+
+local SelectedMob = nil
+local AboveHeight = 6
+local AutoFarmActive = false
+local PositionMode = "Above"
+
+local function getMobs()
+    local mobNames = {}
+    for _, mob in pairs(workspace.Mobs:GetChildren()) do
+        if mob:IsA("Model") and not game.Players:GetPlayerFromCharacter(mob) then
+            local cleanName = mob.Name:gsub("%(.*%)", ""):gsub("^%s*(.-)%s*$", "%1") -- Remove parentheses and trim whitespace
+            if not table.find(mobNames, cleanName) then
+                table.insert(mobNames, cleanName)
+            end
+        end
+    end
+    return mobNames
+end
+
+local MobDropdown = MainTab:AddDropdown({
+    Name = "Select Mob",
+    Default = "",
+    Options = getMobs(),
+    Callback = function(value)
+        SelectedMob = value
+    end
+})
+
+MainTab:AddButton({
+    Name = "Refresh Mobs",
+    Callback = function()
+        MobDropdown:Refresh(getMobs(), true) -- Clear existing options before refreshing
+    end
+})
+
+MainTab:AddTextbox({
+    Name = "Distance Between Mob",
+    Default = "6",
+    TextDisappear = false,
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then AboveHeight = num end
+    end
+})
+
+MainTab:AddDropdown({
+    Name = "Position Mode",
+    Default = "Above",
+    Options = {"Above","Below","Behind"},
+    Callback = function(value)
+        PositionMode = value
+    end
+})
+
+local AutoM1Active = false
+
+MainTab:AddToggle({
+    Name = "Auto M1",
+    Default = false,
+    Callback = function(state)
+        AutoM1Active = state
+        if state then
+            task.spawn(function()
+                while AutoM1Active do
+                    local args = {{
+                        type = "M1",
+                        InAir = false,
+                        UpTilt = false
+                    }}
+                    pcall(function()
+                        M1Remote:FireServer(unpack(args))
+                    end)
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+local M1Remote = ReplicatedStorage:WaitForChild("Resource"):WaitForChild("Remotes"):WaitForChild("M1")
+
+MainTab:AddToggle({
+    Name = "Auto Farm",
+    Default = false,
+    Callback = function(state)
+        AutoFarmActive = state
+        if state then
+            task.spawn(function()
+                while AutoFarmActive do
+                    if SelectedMob then
+                        local mob = workspace.Mobs:FindFirstChild(SelectedMob)
+                        local char = LocalPlayer.Character
+                        if mob and mob:FindFirstChild("HumanoidRootPart") 
+                           and mob:FindFirstChildOfClass("Humanoid") 
+                           and mob.Humanoid.Health > 0
+                           and char and char:FindFirstChild("HumanoidRootPart") then
+                            
+                            local hrp = char.HumanoidRootPart
+                            local targetHRP = mob.HumanoidRootPart
+                            local targetPos = targetHRP.Position
+
+                            if PositionMode == "Above" then
+                                targetPos = targetPos + Vector3.new(0, AboveHeight, 0)
+                            elseif PositionMode == "Below" then
+                                targetPos = targetPos - Vector3.new(0, AboveHeight, 0)
+                            elseif PositionMode == "Behind" then
+                                targetPos = targetPos - targetHRP.CFrame.LookVector * AboveHeight
+                            end
+
+                            hrp.CFrame = CFrame.lookAt(targetPos, targetHRP.Position)
+
+                            local args = {{
+                                type = "M1",
+                                InAir = false,
+                                UpTilt = false
+                            }}
+                            pcall(function()
+                                M1Remote:FireServer(unpack(args))
+                            end)
+                        end
+                    end
+                    RunService.Heartbeat:Wait()
+                end
+            end)
+        end
+    end
+})
+
+local InstantKillActive = false
+
+MainTab:AddToggle({
+    Name = "Instant Kill ( V2 )",
+    Default = false,
+    Callback = function(state)
+        InstantKillActive = state
+    end
+})
+
+task.spawn(function()
+    while true do
+        if AutoFarmActive and SelectedMob then
+            local mob = nil
+            for _, m in pairs(workspace.Mobs:GetChildren()) do
+                if m.Name == SelectedMob and m:FindFirstChild("Humanoid") and m.Humanoid.Health > 0 then
+                    mob = m
+                    break
+                end
+            end
+            if mob and InstantKillActive then
+                local humanoid = mob:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    -- ✅ ฆ่าทันทีถ้าเลือดเหลือ <= 75% ของ MaxHealth
+                    if humanoid.Health <= (humanoid.MaxHealth * 0.75) then
+                        humanoid.Health = 0
+                    end
+                end
+            end
+        end
+        game:GetService("RunService").Heartbeat:Wait()
+    end
+end)
+
+local AutoQuestRemote = ReplicatedStorage:WaitForChild("Resource"):WaitForChild("Remotes"):WaitForChild("Bindable"):WaitForChild("Compliments")
+
+local questOptions = {}
+for i = 1, 45 do
+    table.insert(questOptions, tostring(i))
+end
+
+local QuestDropdown = MainTab:AddDropdown({
+    Name = "Choose Quest",
+    Default = "1",
+    Options = questOptions,
+    Callback = function(value)
+        SelectedQuest = value
+    end
+})
+
+MainTab:AddToggle({
+    Name = "Auto Get Quest",
+    Default = false,
+    Callback = function(state)
+        AutoQuestActive = state
+        if state then
+            task.spawn(function()
+                while AutoQuestActive do
+                    if SelectedQuest then
+                        local args = {{Quest = "Quest "..SelectedQuest, Type = "RepeatQuest"}}
+                        AutoQuestRemote:FireServer(unpack(args))
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+local AutoKillNearActive = false
+
+MainTab:AddToggle({
+    Name = "Auto Kill Near Mob",
+    Default = false,
+    Callback = function(state)
+        AutoKillNearActive = state
+    end
+})
+
+task.spawn(function()
+    while true do
+        if AutoKillNearActive then
+            for _, mob in pairs(workspace.Mobs:GetChildren()) do
+                if mob:FindFirstChild("Humanoid") 
+                and mob.Humanoid.Health < mob.Humanoid.MaxHealth 
+                and mob.Humanoid.Health > 0 
+                and mob.Name ~= LocalPlayer.Name then
+                    mob.Humanoid.Health = 0
+                end
+            end
+        end
+        game:GetService("RunService").Heartbeat:Wait()
+    end
+end)
+
+MainTab:AddLabel("So how it work basically good for moveset")
+MainTab:AddLabel("if you use you move at mob it will auto kill for u")
+MainTab:AddLabel("Nvm it didn't work for moveset")
+MainTab:AddLabel("Still Work for Melee And Sword Tho")
+
+
+local SelectedTool = nil
+local AutoEquip = false
+
+local function getTools()
+    local tools = {}
+    if LocalPlayer.Backpack then
+        for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                table.insert(tools, item.Name)
+            end
+        end
+    end
+    return tools
+end
+
+local ToolDropdown = MainTab:AddDropdown({
+    Name = "Select Tool",
+    Default = "",
+    Options = getTools(),
+    Callback = function(value)
+        SelectedTool = value
+    end
+})
+
+MainTab:AddButton({
+    Name = "Refresh Tools",
+    Callback = function()
+        ToolDropdown:Refresh(getTools())
+    end
+})
+
+MainTab:AddToggle({
+    Name = "Auto Equip Tool",
+    Default = false,
+    Callback = function(state)
+        AutoEquip = state
+        if state then
+            task.spawn(function()
+                while AutoEquip do
+                    local backpack = LocalPlayer:FindFirstChild("Backpack")
+                    local char = LocalPlayer.Character
+                    if backpack and SelectedTool then
+                        local tool = backpack:FindFirstChild(SelectedTool)
+                        if not tool and char then
+                            tool = char:FindFirstChild(SelectedTool)
+                        end
+                        if tool then
+                            LocalPlayer.Character.Humanoid:EquipTool(tool)
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+
+local StatsTab = Window:MakeTab({
+    Name = "Stats",
+    PremiumOnly = false
+})
+
+local Stats = {
+    {Name = "Power", Type = "P"},
+    {Name = "Sword", Type = "S"},
+    {Name = "Health", Type = "H"},
+    {Name = "Melee", Type = "M"}
+}
+
+local ComplimentsRemote = ReplicatedStorage:WaitForChild("Resource")
+    :WaitForChild("Remotes")
+    :WaitForChild("Bindable")
+    :WaitForChild("Compliments")
+
+local StatAmount = 1
+local StatToggles = {}
+
+local funendon fireStat(statType)
+    local args = {{Type = "StatsAdd", C = statType, Amount = StatAmount}}
+    pcall(function()
+        ComplimentsRemote:FireServer(unpack(args))
+    end)
+end
+
+StatsTab:AddTextbox({
+    Name = "Amount",
+    Default = "1",
+    TextDisappear = false,
+    Callback = function(value)
+        local num = tonumber(value)
+        if num then
+            StatAmount = num
+        end
+    end
+})
+
+for _, stat in ipairs(Stats) do
+    StatToggles[stat.Name] = false
+    StatsTab:AddToggle({
+        Name = "Auto "..stat.Name,
+        Default = false,
+        Callback = function(state)
+            StatToggles[stat.Name] = state
+            if state then
+                task.spawn(function()
+                    while StatToggles[stat.Name] do
+                        fireStat(stat.Type)
+                        task.wait(0.1)
+                    end
+                end)
+            end
+        end
+    })
+end
+
+local TeleportTab = Window:MakeTab({
+    Name = "Teleport",
+    PremiumOnly = false
+})
+
+local SelectedNPC = nil
+
+local function getNPCs()
+    local npcList = {}
+    local nameCount = {}
+    for _, npc in pairs(workspace.StaticNpcs:GetChildren()) do
+        local name = npc.Name
+        if nameCount[name] then
+            nameCount[name] = nameCount[name] + 1
+            name = name .. "-" .. nameCount[name]
+        else
+            nameCount[name] = 1
+        end
+        table.insert(npcList, name)
+    end
+    return npcList
+end
+
+local NPCDropdown = TeleportTab:AddDropdown({
+    Name = "Select NPC",
+    Default = "",
+    Options = getNPCs(),
+    Callback = function(value)
+        SelectedNPC = value
+    end
+})
+
+TeleportTab:AddButton({
+    Name = "Refresh NPCs",
+    Callback = function()
+        NPCDropdown:Refresh(getNPCs())
+    end
+})
+
+TeleportTab:AddButton({
+    Name = "Teleport",
+    Callback = function()
+        if SelectedNPC then
+            local realName = SelectedNPC:match("^(.-)%-%d+$") or SelectedNPC
+            local count = 0
+            for _, npc in pairs(workspace.StaticNpcs:GetChildren()) do
+                if npc.Name == realName then
+                    count = count + 1
+                    if count == tonumber(SelectedNPC:match("%-(%d+)$") or 1) then
+                        if npc:FindFirstChild("HumanoidRootPart") then
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = npc.HumanoidRootPart.CFrame + Vector3.new(0, 3, 0)
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
+})
+
+local teleportLocations = {
+    ["Cinderfall"] = Vector3.new(449, 0, 585),
+    ["The Academy"] = Vector3.new(-361, 3, -273),
+    ["The Windmill"] = Vector3.new(730, 52, -205),
+    ["Shenzai"] = Vector3.new(958, -1, -1402)
+}
+
+local selectedLocation = nil
+
+local TeleportDropdown = TeleportTab:AddDropdown({
+    Name = "Select Location",
+    Default = "The Academy",
+    Options = {"Cinderfall", "The Academy", "The Windmill", "Shenzai"},
+    Callback = function(value)
+        selectedLocation = value
+    end
+})
+
+TeleportTab:AddButton({
+    Name = "Teleport",
+    Callback = function()
+        if selectedLocation and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(teleportLocations[selectedLocation])
+        end
+    end
+})
+
+local CodeTab = Window:MakeTab({
+    Name = "Codes",
+    PremiumOnly = false
+})
+
+CodeTab:AddLabel("1.5MVISITSWOWWWWW x2 Exp")
+CodeTab:AddLabel("100KLIKESSLEZZGO: 10 Clan Spins (NEW)")
+CodeTab:AddLabel("90KLIKESWOAH: 5 Clan Spins (NEW)")
+CodeTab:AddLabel("60KThumbsUp: 5 Clan Spins (NEW)")
+CodeTab:AddLabel("80KLIKESNICE: 15 min EXP (NEW)")
+CodeTab:AddLabel("70KLIKESWOW: 15 min EXP (NEW)")
+CodeTab:AddLabel("1MVisits: 5 Clan Spins (NEW)")
+CodeTab:AddLabel("100KMemberswow: 5 Clan Spins (NEW)")
+CodeTab:AddLabel("2KActivesNicceee: 5 Race Spins (NEW)")
+CodeTab:AddLabel("SORRYFORSOULREAPERDELAY: 15 min EXP (NEW)")
+CodeTab:AddLabel("75KPEAKMEMBERS: 15 min EXP (NEW)")
+CodeTab:AddLabel("25KLLIKESSTHUMB: 5 Clan Spins (NEW)")
+CodeTab:AddLabel("50KTHUMBUP: 5 Clan Spins")
+CodeTab:AddLabel("500KVISITSS: 5 Race Spins")
+CodeTab:AddLabel("750KVISITSS: 5 Race Spins")
+
+local MiscTab = Window:MakeTab({
+    Name = "Misc",
+    PremiumOnly = false
+})
+
+MiscTab:AddButton({
+    Name = "Redeem All Codes",
+    Callback = function()
+        local codes = {
+            "1MVisits",
+            "100KMemberswow",
+            "2KActivesNicceee",
+            "SORRYFORSOULREAPERDELAY",
+            "75KPEAKMEMBERS",
+            "25KLLIKESSTHUMB",
+            "50KTHUMBUP",
+            "500KVISITSS",
+            "750KVISITSS",
+            "300KVISITS",
+            "NEWUPDCOMINGSOON",
+            "20KLIKESWOW",
+            "500KVISITSNICEE",
+            "200KVISITS",
+            "10KLIKESS",
+            "150KVISITS",
+            "5KFavssss",
+            "5KLIKESSSLEZGO"
+        }
+
+        local remote = game:GetService("ReplicatedStorage")
+            :WaitForChild("Resource")
+            :WaitForChild("Remotes")
+            :WaitForChild("Bindable")
+            :WaitForChild("Server")
+
+        task.spawn(function()
+            for _, code in ipairs(codes) do
+                local args = {
+                    {
+                        Arg = "Codes",
+                        Code = code
+                    }
+                }
+                pcall(function()
+                    remote:InvokeServer(unpack(args))
+                end)
+                task.wait(1)
+            end
+        end)
+    end
+})
+
+local ShopTab = Window:MakeTab({
+    Name = "Shop",
+    PremiumOnly = false
+})
+
+local items = {
+    "Explosive Bomb",
+    "Construction",
+    "Rubber",
+    "Vital Arts",
+    "Turbo Soul",
+    "Light",
+    "Star Guardian",
+    "Ice",
+    "Infinity",
+    "Monarch",
+    "Vessel"
+}
+
+local selectedItem = items[1]
+local AutoBuyActive = false
+
+local ShopDropdown = ShopTab:AddDropdown({
+    Name = "Select Item",
+    Default = selectedItem,
+    Options = items,
+    Callback = function(value)
+        selectedItem = value
+    end
+})
+
+ShopTab:AddToggle({
+    Name = "Auto Buy",
+    Default = false,
+    Callback = function(state)
+        AutoBuyActive = state
+        if state then
+            task.spawn(function()
+                while AutoBuyActive do
+                    local index = table.find(items, selectedItem)
+                    if index then
+                        local args = {{
+                            Item = "MV"..index,
+                            Type = "StockBuy"
+                        }}
+                        game:GetService("ReplicatedStorage"):WaitForChild("Resource"):WaitForChild("Remotes")
+                            :WaitForChild("Bindable"):WaitForChild("Compliments"):FireServer(unpack(args))
+                    end
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+})
+
+ShopTab:AddButton({
+    Name = "Buy Once",
+    Callback = function()
+        local index = table.find(items, selectedItem)
+        if index then
+            local args = {{
+                Item = "MV"..index,
+                Type = "StockBuy"
+            }}
+            game:GetService("ReplicatedStorage"):WaitForChild("Resource")
+                :WaitForChild("Remotes"):WaitForChild("Bindable"):WaitForChild("Compliments")
+                :FireServer(unpack(args))
+        end
+    end
+})
+
+local DialogueRemote = game:GetService("ReplicatedStorage")
+    :WaitForChild("Resource")
+    :WaitForChild("Remotes")
+    :WaitForChild("Player")
+    :WaitForChild("Dialogue")
+
+local DialogueOptions = {
+    ["Claws Of Dismantle"] = {NpcName = "Kisaragi", Dialogue = "Have"},
+    ["Hand Of Attraction"] = {NpcName = "Daichi", Dialogue = "Have"},
+    ["Oni Shockwave"] = {NpcName = "Sad Demon", Dialogue = "Have"},
+    ["Cursed Fist"] = {NpcName = "The Puncher", Dialogue = "Have"}
+}
+
+local SelectedDialogue = nil
+
+ShopTab:AddDropdown({
+    Name = "Choose Melee",
+    Default = "",
+    Options = {"Claws Of Dismantle", "Hand Of Attraction", "Oni Shockwave", "Cursed Fist"},
+    Callback = function(v)
+        SelectedDialogue = v
+    end
+})
+
+ShopTab:AddLabel("For only if you already buy melee")
+
+ShopTab:AddButton({
+    Name = "Switch Melee",
+    Callback = function()
+        if SelectedDialogue and DialogueOptions[SelectedDialogue] then
+            local args = {
+                "Start",
+                DialogueOptions[SelectedDialogue]
+            }
+            DialogueRemote:FireServer(unpack(args))
+        end
+    end
+})
+
+ShopTab:AddLabel("Roll")
+
+local AutoRollActive = false
+
+ShopTab:AddToggle({
+    Name = "Auto Roll Moveset",
+    Default = false,
+    Callback = function(state)
+        AutoRollActive = state
+        if state then
+            task.spawn(function()
+                while AutoRollActive do
+                    local args = {{
+                        Arg = "MovesetSpin"
+                    }}
+                    game:GetService("ReplicatedStorage"):WaitForChild("Resource")
+                        :WaitForChild("Remotes"):WaitForChild("Bindable")
+                        :WaitForChild("Server"):InvokeServer(unpack(args))
+                    task.wait(1)
+                end
+            end)
+        end
+    end
+})
+
+local CreditTab = Window:MakeTab({
+    Name = "Credit",
+    PremiumOnly = false
+})
+
+CreditTab:AddLabel("Discord Link:")
+CreditTab:AddButton({
+    Name = "Copy Discord",
+    Callback = function()
+        setclipboard("https://discord.gg/asKMJe9f")
+    end
+})
+
+CreditTab:AddLabel("YouTube Link:")
+CreditTab:AddButton({
+    Name = "Copy YouTube",
+    Callback = function()
+        setclipboard("https://youtube.com/@kaka_tu")
+    end
+})
+
+OrionLib:Init()
